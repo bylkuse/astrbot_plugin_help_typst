@@ -2,6 +2,7 @@ import ctypes
 import gc
 import platform
 import re
+import tempfile
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,10 +44,23 @@ class RenderTask:
 
 def execute_render_task(task: RenderTask) -> list[str]:
     """渲染子进程"""
+    staged_json_path: Path | None = None
     try:
         # 1. 准备参数
+        template_dir = Path(task.template_path).parent
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=".help_typst_",
+            suffix=".json",
+            dir=template_dir,
+            delete=False,
+        ) as staged_json:
+            staged_json.write(task.json_str)
+            staged_json_path = Path(staged_json.name)
+
         sys_inputs = {
-            "json_string": task.json_str,
+            "json_path": staged_json_path.name,
             "timestamp": task.timestamp,
         }
         if task.query:
@@ -79,5 +93,11 @@ def execute_render_task(task: RenderTask) -> list[str]:
         return [f"ERROR: {traceback.format_exc()}"]
 
     finally:
+        if staged_json_path:
+            try:
+                staged_json_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
         # 4. 强制内存回收
         force_memory_release()
